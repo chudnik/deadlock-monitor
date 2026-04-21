@@ -5,6 +5,5 @@ cmake-build-release/
 *.o
 *.a
 .gitignore
-*.md
 docs/
 main.cpp
