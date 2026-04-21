@@ -1,0 +1,5 @@
+PROJECT_NAME     = "Deadlock Monitor"
+INPUT            = src/
+RECURSIVE        = YES
+OUTPUT_DIRECTORY = docs/
+GENERATE_LATEX   = NO

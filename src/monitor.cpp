@@ -12,6 +12,20 @@ ResourceMonitor::ResourceMonitor(int total, int num_threads, std::vector<int> ma
     , need_(num_threads)
     , stats_(num_threads)
 {
+    if (total_ <= 0)
+        throw std::invalid_argument("total must be positive");
+    if (num_threads_ <= 0)
+        throw std::invalid_argument("num_threads must be positive");
+    if (static_cast<int>(max_.size()) != num_threads_)
+        throw std::invalid_argument("max_claims size must match num_threads");
+
+    for (int i = 0; i < num_threads_; ++i) {
+        if (max_[i] < 0)
+            throw std::invalid_argument("max_claims must be non-negative");
+        if (max_[i] > total_)
+            throw std::invalid_argument("max_claims must be <= total");
+    }
+
     for (int i = 0; i < num_threads_; ++i)
         need_[i] = max_[i];
 }
@@ -57,15 +71,25 @@ bool ResourceMonitor::isSafe() const {
  *
  * Время ожидания фиксируется в @c stats_[id] для последующего вывода статистики.
  */
-void ResourceMonitor::request(int id, int amount) {
+bool ResourceMonitor::request(int id, int amount) {
     auto wait_start = std::chrono::steady_clock::now();
 
     std::unique_lock<std::mutex> lock(mtx_);
+    if (id < 0 || id >= num_threads_)
+        throw std::out_of_range("thread_id is out of range");
+    if (amount <= 0)
+        throw std::invalid_argument("amount must be positive");
+    if (amount > need_[id])
+        throw std::invalid_argument("requested amount exceeds thread need");
+
     stats_[id].requests++;
 
     bool waited = false;
 
     cv_.wait(lock, [&]() {
+        if (shutdown_)
+            return true;
+
         if (amount > available_)
             return false;
 
@@ -83,6 +107,9 @@ void ResourceMonitor::request(int id, int amount) {
         return false;
     });
 
+    if (shutdown_)
+        return false;
+
     if (waited) {
         auto wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - wait_start).count();
@@ -91,6 +118,7 @@ void ResourceMonitor::request(int id, int amount) {
     }
 
     stats_[id].granted++;
+    return true;
 }
 
 /**
@@ -102,6 +130,13 @@ void ResourceMonitor::request(int id, int amount) {
 void ResourceMonitor::release(int id, int amount) {
     {
         std::lock_guard<std::mutex> lock(mtx_);
+        if (id < 0 || id >= num_threads_)
+            throw std::out_of_range("thread_id is out of range");
+        if (amount <= 0)
+            throw std::invalid_argument("amount must be positive");
+        if (amount > allocation_[id])
+            throw std::invalid_argument("release amount exceeds allocation");
+
         available_      += amount;
         allocation_[id] -= amount;
         need_[id]       += amount;
@@ -109,7 +144,22 @@ void ResourceMonitor::release(int id, int amount) {
     cv_.notify_all();
 }
 
+void ResourceMonitor::shutdown() {
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        shutdown_ = true;
+    }
+    cv_.notify_all();
+}
+
+StateSnapshot ResourceMonitor::snapshot() const {
+    std::lock_guard<std::mutex> lock(mtx_);
+    return {available_, allocation_, need_};
+}
+
 int ResourceMonitor::getNeed(int id) const {
     std::lock_guard<std::mutex> lock(mtx_);
+    if (id < 0 || id >= num_threads_)
+        throw std::out_of_range("thread_id is out of range");
     return need_[id];
 }

@@ -4,6 +4,13 @@
 #include <mutex>
 #include <condition_variable>
 
+/// @brief Атомарный снимок состояния системы ресурсов в один момент времени.
+struct StateSnapshot {
+    int available;              ///< Число свободных единиц ресурса.
+    std::vector<int> allocation; ///< Allocation[i]: выделено потоку i.
+    std::vector<int> need;       ///< Need[i]: оставшаяся потребность потока i.
+};
+
 /// @brief Статистика работы одного потока за всё время выполнения программы.
 struct ThreadStats {
     int requests       = 0; ///< Общее число обращений к монитору с запросом ресурсов.
@@ -34,6 +41,10 @@ public:
      * @param num_threads Количество потоков, работающих с монитором.
      * @param max_claims  Вектор максимальных потребностей Max[i] для каждого потока.
      *                    Размер вектора должен совпадать с @p num_threads.
+     *
+     * @throws std::invalid_argument Если входные данные некорректны
+     *         (неположительные total/num_threads, неверный размер max_claims,
+     *         отрицательные или превышающие total значения max_claims[i]).
      */
     ResourceMonitor(int total, int num_threads, std::vector<int> max_claims);
 
@@ -46,8 +57,15 @@ public:
      *
      * @param thread_id Идентификатор запрашивающего потока (0-based).
      * @param amount    Запрашиваемое число единиц ресурса. Должно быть ≤ Need[thread_id].
+     *
+     * @throws std::out_of_range Если @p thread_id вне диапазона [0, num_threads).
+     * @throws std::invalid_argument Если @p amount <= 0 или @p amount > Need[thread_id].
      */
-    void request(int thread_id, int amount);
+    /**
+     * @return @c true — ресурсы выделены; @c false — монитор завершает работу,
+     *         ресурсы не выделены и освобождать их не нужно.
+     */
+    bool request(int thread_id, int amount);
 
     /**
      * @brief Освобождает ранее выделенные ресурсы.
@@ -57,14 +75,38 @@ public:
      *
      * @param thread_id Идентификатор освобождающего потока (0-based).
      * @param amount    Число единиц ресурса для возврата. Должно быть ≤ Allocation[thread_id].
+     *
+     * @throws std::out_of_range Если @p thread_id вне диапазона [0, num_threads).
+     * @throws std::invalid_argument Если @p amount <= 0 или @p amount > Allocation[thread_id].
      */
     void release(int thread_id, int amount);
+
+    /**
+     * @brief Инициирует завершение работы монитора.
+     *
+     * Устанавливает флаг завершения и пробуждает все потоки, заблокированные
+     * в @c request(), чтобы они могли корректно завершить работу.
+     * Должен вызываться перед @c join() рабочих потоков.
+     */
+    void shutdown();
+
+    /**
+     * @brief Возвращает атомарный снимок текущего состояния системы.
+     *
+     * Все поля читаются под одним захватом мьютекса, что гарантирует
+     * согласованность данных в отличие от последовательных вызовов геттеров.
+     *
+     * @return Структура @c StateSnapshot с копиями available, allocation, need.
+     */
+    StateSnapshot snapshot() const;
 
     /**
      * @brief Возвращает текущую оставшуюся потребность потока.
      *
      * @param thread_id Идентификатор потока (0-based).
      * @return Значение Need[thread_id] = Max[thread_id] − Allocation[thread_id].
+     *
+     * @throws std::out_of_range Если @p thread_id вне диапазона [0, num_threads).
      */
     int getNeed(int thread_id) const;
 
@@ -111,6 +153,8 @@ private:
     std::vector<int> max_;               ///< Max[i]: максимальная потребность потока i.
     std::vector<int> allocation_;        ///< Allocation[i]: выделено потоку i.
     std::vector<int> need_;              ///< Need[i] = Max[i] - Allocation[i].
+
+    bool shutdown_ = false;             ///< Флаг завершения: пробуждает все ожидающие потоки.
 
     mutable std::mutex mtx_;            ///< Мьютекс для защиты состояния монитора.
     std::condition_variable cv_;        ///< Условная переменная для ожидания безопасного состояния.

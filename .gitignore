@@ -4,3 +4,7 @@ cmake-build-release/
 .idea/
 *.o
 *.a
+.gitignore
+*.md
+docs/
+main.cpp
