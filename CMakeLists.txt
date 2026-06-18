@@ -4,12 +4,9 @@ project(deadlock_monitor LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Threads REQUIRED)
+add_subdirectory(modules/monitor)
+add_subdirectory(modules/simulation)
 
-add_executable(monitor
-    src/main.cpp
-    src/monitor.cpp
-    src/simulation.cpp
-)
+add_executable(deadlock_monitor src/main.cpp)
 
-target_link_libraries(monitor PRIVATE Threads::Threads)
+target_link_libraries(deadlock_monitor PRIVATE simulation)
