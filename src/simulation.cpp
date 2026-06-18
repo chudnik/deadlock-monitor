@@ -78,16 +78,16 @@ void worker(int id, ResourceMonitor& mon, std::atomic<bool>& running) {
 }
 }  // namespace
 
-std::vector<int> generateMaxClaims(int num_threads, int total_resources) {
+std::vector<std::size_t> generateMaxClaims(int num_threads, int total_resources) {
     std::mt19937 rng(42);
     std::uniform_int_distribution<int> max_dist(1, total_resources);
-    std::vector<int> max_claims(num_threads);
+    std::vector<std::size_t> max_claims(num_threads);
     for (int i = 0; i < num_threads; ++i)
         max_claims[i] = max_dist(rng);
     return max_claims;
 }
 
-SimulationResult runSimulation(int total_resources, int duration_sec, const std::vector<int>& max_claims) {
+SimulationResult runSimulation(int total_resources, int duration_sec, const std::vector<std::size_t>& max_claims) {
     prog_start = std::chrono::steady_clock::now();
 
     const int num_threads = static_cast<int>(max_claims.size());

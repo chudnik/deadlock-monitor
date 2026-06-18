@@ -19,7 +19,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const std::vector<int> max_claims = generateMaxClaims(K, Total);
+    const std::vector<std::size_t> max_claims = generateMaxClaims(K, Total);
 
     std::cout << "=== Deadlock Monitor ===\n";
     std::cout << "Threads: " << K << "  Total resources: " << Total

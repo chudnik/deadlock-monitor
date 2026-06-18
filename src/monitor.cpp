@@ -1,6 +1,7 @@
 #include "monitor.hpp"
 #include <algorithm>
 #include <chrono>
+#include <numeric>
 #include <stdexcept>
 
 ResourceMonitor::ResourceMonitor(const std::size_t total,
@@ -24,138 +25,114 @@ ResourceMonitor::ResourceMonitor(const std::size_t total,
 
         need_[i] = max_[i];
     }
+
+    finish_buffer_.resize(num_threads_);
 }
 
-/**
- * @details
- * Алгоритм работает со вспомогательными структурами:
- * - @c work  — копия @c available_, моделирует ресурсы, доступные по мере завершения потоков;
- * - @c finish[i] — флаг завершённости потока i.
- *
- * На каждой итерации ищется поток i, для которого @c need_[i] <= work.
- * Если такой поток найден — он «завершается»: его ресурсы возвращаются в @c work,
- * @c finish[i] устанавливается в @c true. Цикл продолжается до тех пор, пока
- * на очередной итерации не окажется ни одного подходящего потока.
- * Система безопасна тогда и только тогда, когда все @c finish[i] == true.
- */
 bool ResourceMonitor::isSafe() const {
-    int work = available_;
-    std::vector<bool> finish(num_threads_, false);
+    std::size_t work = available_;
+    std::fill(finish_buffer_.begin(), finish_buffer_.end(), false);
 
     bool found = true;
     while (found) {
         found = false;
-        for (int i = 0; i < num_threads_; ++i) {
-            if (!finish[i] && need_[i] <= work) {
+        for (std::size_t i = 0; i < num_threads_; ++i) {
+            if (!finish_buffer_[i] && need_[i] <= work) {
                 work += allocation_[i];
-                finish[i] = true;
+                finish_buffer_[i] = true;
                 found = true;
             }
         }
     }
 
-    return std::all_of(finish.begin(), finish.end(), [](bool v) { return v; });
+    return std::all_of(finish_buffer_.begin(), finish_buffer_.end(), [](const bool v) { return v; });
 }
 
-/**
- * @details
- * Внутри предиката @c cv_.wait выполняется гипотетическое выделение:
- * @c available_, @c allocation_[id] и @c need_[id] временно обновляются,
- * после чего вызывается @c isSafe(). Если состояние небезопасно — изменения
- * откатываются и предикат возвращает @c false, что заставляет поток снова уснуть.
- * При успешной проверке предикат возвращает @c true — изменения остаются в силе.
- *
- * Время ожидания фиксируется в @c stats_[id] для последующего вывода статистики.
- */
-bool ResourceMonitor::request(int id, int amount) {
-    auto wait_start = std::chrono::steady_clock::now();
+bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amount) {
+    std::unique_lock lock(mtx_);
 
-    std::unique_lock<std::mutex> lock(mtx_);
-    if (id < 0 || id >= num_threads_)
+    if (thread_id >= num_threads_)
         throw std::out_of_range("thread_id is out of range");
-    if (amount <= 0)
+    if (amount == 0)
         throw std::invalid_argument("amount must be positive");
-    if (amount > need_[id])
+    if (amount > need_[thread_id])
         throw std::invalid_argument("requested amount exceeds thread need");
 
-    stats_[id].requests++;
+    stats_[thread_id].requests++;
 
-    bool waited = false;
+    bool first_try = true;
+    const auto wait_start = std::chrono::steady_clock::now();
 
-    cv_.wait(lock, [&]() {
+    cv_.wait(lock, [&] {
         if (shutdown_)
             return true;
 
-        if (amount > available_)
+        if (amount > available_) {
+            first_try = false;
             return false;
+        }
 
         available_ -= amount;
-        allocation_[id] += amount;
-        need_[id] -= amount;
+        allocation_[thread_id] += amount;
+        need_[thread_id] -= amount;
 
         if (isSafe())
             return true;
 
         available_ += amount;
-        allocation_[id] -= amount;
-        need_[id] += amount;
-        waited = true;
+        allocation_[thread_id] -= amount;
+        need_[thread_id] += amount;
+
+        first_try = false;
         return false;
     });
 
     if (shutdown_)
         return false;
 
-    if (waited) {
-        auto wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    if (!first_try) {
+        const auto wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - wait_start).count();
-        stats_[id].waited++;
-        stats_[id].total_wait_ms += wait_ms;
+        stats_[thread_id].waited++;
+        stats_[thread_id].total_wait_ms += wait_ms;
     }
 
-    stats_[id].granted++;
+    stats_[thread_id].granted++;
     return true;
 }
 
-/**
- * @details
- * Обновление состояния выполняется под мьютексом, после чего мьютекс
- * освобождается до вызова @c notify_all() — это позволяет разбуженным
- * потокам немедленно захватить мьютекс и выполнить проверку безопасности.
- */
-void ResourceMonitor::release(int id, int amount) {
+void ResourceMonitor::release(const std::size_t thread_id, const std::size_t amount) {
     {
-        std::lock_guard<std::mutex> lock(mtx_);
-        if (id < 0 || id >= num_threads_)
+        std::lock_guard lock(mtx_);
+        if (thread_id >= num_threads_)
             throw std::out_of_range("thread_id is out of range");
-        if (amount <= 0)
+        if (amount == 0)
             throw std::invalid_argument("amount must be positive");
-        if (amount > allocation_[id])
+        if (amount > allocation_[thread_id])
             throw std::invalid_argument("release amount exceeds allocation");
 
         available_ += amount;
-        allocation_[id] -= amount;
-        need_[id] += amount;
+        allocation_[thread_id] -= amount;
+        need_[thread_id] += amount;
     }
     cv_.notify_all();
 }
 
 void ResourceMonitor::shutdown() {
     {
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::lock_guard lock(mtx_);
         shutdown_ = true;
     }
     cv_.notify_all();
 }
 
 StateSnapshot ResourceMonitor::snapshot() const {
-    std::lock_guard<std::mutex> lock(mtx_);
+    std::lock_guard lock(mtx_);
     return {available_, allocation_, need_};
 }
 
-int ResourceMonitor::getNeed(int id) const {
-    std::lock_guard<std::mutex> lock(mtx_);
-    if (id < 0 || id >= num_threads_)
-        throw std::out_of_range("thread_id is out of range");
-    return need_[id];
+std::size_t ResourceMonitor::getNeed(const std::size_t thread_id) const {
+    std::lock_guard lock(mtx_);
+    if (thread_id >= num_threads_) throw std::out_of_range("thread_id is out of range");
+    return need_[thread_id];
 }
