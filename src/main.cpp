@@ -1,4 +1,5 @@
 #include "simulation.hpp"
+#include "logger.hpp"
 
 #include <iomanip>
 #include <iostream>
@@ -10,9 +11,16 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    int K = std::stoi(argv[1]);
-    int Total = std::stoi(argv[2]);
-    int T = std::stoi(argv[3]);
+    int K = 0, Total = 0, T = 0;
+
+    try {
+        K = std::stoi(argv[1]);
+        Total = std::stoi(argv[2]);
+        T = std::stoi(argv[3]);
+    } catch (const std::exception &e) {
+        std::cerr << "Error: Invalid argument format. Expected positive integers.\n";
+        return 1;
+    }
 
     if (K <= 0 || Total <= 0 || T <= 0) {
         std::cerr << "All arguments must be positive integers.\n";
@@ -29,9 +37,12 @@ int main(int argc, char *argv[]) {
         std::cout << " Thread-" << i << "=" << max_claims[i];
     std::cout << "\n\n";
 
+    init_logger();
+
     const SimulationResult result = runSimulation(Total, T, max_claims);
 
-    // итоговая статистика
+    stop_logger();
+
     const auto &stats = result.stats;
     std::cout << "\n=== Statistics ===\n";
     std::cout << std::left
