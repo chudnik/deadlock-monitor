@@ -10,14 +10,12 @@
 namespace {
     void worker(const int id, ResourceMonitor &mon, const std::atomic<bool> &running) {
         std::mt19937 rng(std::random_device{}() ^ id * 2654435761u);
-
-        // Получаем ссылку на синглтон логгера для текущего потока
         auto &logger = Logger::instance();
 
         while (running) {
             const int need_now = mon.getNeed(id);
             if (need_now == 0) {
-                logger.log_message(logger.event_log(id, "COMPLETE", -1, nullptr));
+                logger.log_message(Logger::event_log(id, "COMPLETE", -1, nullptr));
                 break;
             }
 
@@ -25,13 +23,13 @@ namespace {
             const int amount = dist(rng);
 
             const StateSnapshot req_snapshot = mon.snapshot();
-            logger.log_message(logger.event_log(id, "REQUEST", amount, &req_snapshot));
+            logger.log_message(Logger::event_log(id, "REQUEST", amount, &req_snapshot));
 
             if (!mon.request(id, amount))
                 break;
 
             const StateSnapshot grant_snapshot = mon.snapshot();
-            logger.log_message(logger.event_log(id, "GRANTED", amount, &grant_snapshot));
+            logger.log_message(Logger::event_log(id, "GRANTED", amount, &grant_snapshot));
 
             std::uniform_int_distribution work_ms(50, 200);
             std::this_thread::sleep_for(std::chrono::milliseconds(work_ms(rng)));
@@ -39,7 +37,7 @@ namespace {
             mon.release(id, amount);
 
             const StateSnapshot release_snapshot = mon.snapshot();
-            logger.log_message(logger.event_log(id, "RELEASE", amount, &release_snapshot));
+            logger.log_message(Logger::event_log(id, "RELEASE", amount, &release_snapshot));
 
             std::uniform_int_distribution pause_ms(10, 100);
             std::this_thread::sleep_for(std::chrono::milliseconds(pause_ms(rng)));
@@ -59,7 +57,15 @@ std::vector<std::size_t> generateMaxClaims(const int num_threads, const int tota
 SimulationResult runSimulation(const int total_resources, const int duration_sec,
                                const std::vector<std::size_t> &max_claims) {
     const int num_threads = static_cast<int>(max_claims.size());
-    ResourceMonitor monitor(total_resources, num_threads, max_claims);
+
+    // Передаем лямбду, которая перенаправляет вызовы из монитора в Logger
+    ResourceMonitor monitor(total_resources, num_threads, max_claims,
+        [](std::size_t thread_id, std::string_view event, std::size_t amount, const StateSnapshot *state) {
+            auto &logger = Logger::instance();
+            logger.log_message(Logger::event_log(thread_id, event, amount, state));
+        }
+    );
+
     std::atomic running{true};
 
     std::vector<std::thread> threads;

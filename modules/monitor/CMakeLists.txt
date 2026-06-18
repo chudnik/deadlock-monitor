@@ -3,4 +3,3 @@ add_library(monitor STATIC
 )
 
 target_include_directories(monitor PUBLIC include)
-target_link_libraries(monitor PUBLIC logger)

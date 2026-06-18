@@ -1,18 +1,19 @@
 #include "monitor.hpp"
-#include "logger.hpp"
 #include <algorithm>
 #include <chrono>
 #include <stdexcept>
 
 ResourceMonitor::ResourceMonitor(const std::size_t total,
                                  const std::size_t num_threads,
-                                 std::vector<std::size_t> max_claims) : total_(total),
-                                                                        available_(total),
-                                                                        num_threads_(num_threads),
-                                                                        allocation_(num_threads, 0),
-                                                                        need_(std::move(max_claims)),
-                                                                        finish_buffer_(num_threads),
-                                                                        stats_(num_threads) {
+                                 std::vector<std::size_t> max_claims,
+                                 CallBack callback) : total_(total),
+                                                      available_(total),
+                                                      num_threads_(num_threads),
+                                                      allocation_(num_threads, 0),
+                                                      need_(std::move(max_claims)),
+                                                      finish_buffer_(num_threads),
+                                                      stats_(num_threads),
+                                                      callback_(std::move(callback)) {
     if (total == 0 || num_threads == 0 || need_.size() != num_threads)
         throw std::invalid_argument("Invalid constructor arguments");
 
@@ -46,51 +47,72 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
 
     stats_[thread_id].requests++;
     bool first_try = true;
+    bool approved = false;
     const auto wait_start = std::chrono::steady_clock::now();
 
-    cv_.wait(lock, [&] {
-        if (shutdown_) return true;
+    bool should_log_blocked = false;
+    bool should_log_denied = false;
+    StateSnapshot log_snapshot;
 
-        auto &logger = Logger::instance();
+    while (true) {
+        if (shutdown_) break;
 
         if (amount > available_) {
             if (first_try) {
-                const StateSnapshot current_state{available_, allocation_, need_};
-                logger.log_message(logger.event_log(thread_id, "BLOCKED", amount, &current_state));
+                should_log_blocked = true;
+                log_snapshot = {available_, allocation_, need_};
+                first_try = false;
             }
-            return first_try = false;
-        }
+        } else {
+            available_ -= amount;
+            allocation_[thread_id] += amount;
+            need_[thread_id] -= amount;
 
-        available_ -= amount;
-        allocation_[thread_id] += amount;
-        need_[thread_id] -= amount;
-
-        if (isSafe()) {
-            if (!first_try) {
-                const StateSnapshot current_state{available_, allocation_, need_};
-                logger.log_message(logger.event_log(thread_id, "WAKEUP", amount, &current_state));
+            if (isSafe()) {
+                approved = true;
+                if (!first_try) {
+                    log_snapshot = {available_, allocation_, need_};
+                }
+                break;
             }
-            return true;
+
+            if (first_try) {
+                should_log_denied = true;
+                log_snapshot = {available_, allocation_, need_};
+                first_try = false;
+            }
+
+            available_ += amount;
+            allocation_[thread_id] -= amount;
+            need_[thread_id] += amount;
         }
 
-        if (first_try) {
-            const StateSnapshot current_state{available_, allocation_, need_};
-            logger.log_message(logger.event_log(thread_id, "DENIED", amount, &current_state));
+        if (should_log_blocked || should_log_denied) {
+            lock.unlock();
+            if (callback_) {
+                if (should_log_blocked) callback_(thread_id, "BLOCKED", amount, &log_snapshot);
+                if (should_log_denied) callback_(thread_id, "DENIED", amount, &log_snapshot);
+            }
+            should_log_blocked = false;
+            should_log_denied = false;
+            lock.lock();
+            continue;
         }
 
-        available_ += amount;
-        allocation_[thread_id] -= amount;
-        need_[thread_id] += amount;
+        cv_.wait(lock);
+    }
 
-        return first_try = false;
-    });
-
-    if (shutdown_) return false;
+    if (shutdown_ || !approved) return false;
 
     if (!first_try) {
         stats_[thread_id].waited++;
         stats_[thread_id].total_wait_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - wait_start).count();
+
+        lock.unlock();
+        if (callback_) callback_(thread_id, "WAKEUP", amount, &log_snapshot);
+    } else {
+        lock.unlock();
     }
 
     return stats_[thread_id].granted++, true;

@@ -3,6 +3,7 @@
 #include <vector>
 #include <mutex>
 #include <condition_variable>
+#include <functional>
 
 struct StateSnapshot {
     std::size_t available;
@@ -19,7 +20,12 @@ struct ThreadStats {
 
 class ResourceMonitor {
 public:
-    ResourceMonitor(std::size_t total, std::size_t num_threads, std::vector<std::size_t> max_claims);
+    using CallBack = std::function<void(std::size_t, std::string_view, std::size_t, const StateSnapshot *)>;
+
+    ResourceMonitor(std::size_t total,
+                    std::size_t num_threads,
+                    std::vector<std::size_t> max_claims,
+                    CallBack callback = nullptr);
 
     bool request(std::size_t thread_id, std::size_t amount);
 
@@ -65,4 +71,5 @@ private:
     std::condition_variable cv_;
 
     std::vector<ThreadStats> stats_;
+    CallBack callback_;
 };
