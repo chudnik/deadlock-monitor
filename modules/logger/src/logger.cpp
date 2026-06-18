@@ -31,7 +31,7 @@ void Logger::logger_worker() {
             log_message = std::move(logger_queue_.front());
             logger_queue_.pop();
         }
-        std::cout << log_message << std::endl;
+        std::cout << log_message << '\n';
     }
 }
 
