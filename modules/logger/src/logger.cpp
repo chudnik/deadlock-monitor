@@ -17,12 +17,12 @@ namespace {
         while (true) {
             std::string log_message;
             {
-                std::unique_lock<std::mutex> lock(logger_mutex);
+                std::unique_lock lock(logger_mutex);
                 logger_cv.wait(lock, [] { return logger_should_stop || !logger_queue.empty(); });
 
                 if (logger_should_stop && logger_queue.empty()) break;
 
-                log_message = logger_queue.front();
+                log_message = std::move(logger_queue.front());
                 logger_queue.pop();
             }
             std::cout << log_message << std::endl;
@@ -50,7 +50,7 @@ void init_logger() {
 
 void stop_logger() {
     {
-        std::unique_lock<std::mutex> lock(logger_mutex);
+        std::lock_guard lock(logger_mutex);
         logger_should_stop = true;
     }
     logger_cv.notify_all();
@@ -58,16 +58,19 @@ void stop_logger() {
 }
 
 void log_message(const std::string &message) {
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
     {
+        const auto ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
         std::string log_message = "[+" + std::to_string(ms) + "ms] " + message;
         std::lock_guard lock(logger_mutex);
-        logger_queue.push(log_message);
+        logger_queue.push(std::move(log_message));
     }
     logger_cv.notify_one();
 }
 
-std::string event_log(const std::size_t thread_id, const std::string &event, const std::size_t amount,
+std::string event_log(const std::size_t thread_id,
+                      const std::string &event,
+                      const std::size_t amount,
                       const StateSnapshot *state) {
     std::ostringstream os;
     os << "event=" << std::left << std::setw(8) << event << " thread_id=" << thread_id;
