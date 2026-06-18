@@ -3,6 +3,7 @@
 #include "monitor.hpp"
 #include <thread>
 #include <queue>
+#include <string_view>
 
 class Logger {
 public:
@@ -22,7 +23,7 @@ public:
     void log_message(const std::string &message);
 
     static std::string event_log(std::size_t thread_id,
-                                 const std::string &event,
+                                 const std::string_view event,
                                  std::size_t amount,
                                  const StateSnapshot *state);
 

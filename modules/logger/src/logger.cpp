@@ -60,7 +60,7 @@ std::string Logger::state_to_str(const StateSnapshot &s) {
 }
 
 std::string Logger::event_log(const std::size_t thread_id,
-                              const std::string &event,
+                              const std::string_view event,
                               const std::size_t amount,
                               const StateSnapshot *state) {
     std::ostringstream os;
