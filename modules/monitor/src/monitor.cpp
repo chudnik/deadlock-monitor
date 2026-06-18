@@ -52,9 +52,8 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
         if (shutdown_) return true;
         if (amount > available_) {
             if (first_try) {
-                log_message(
-                    "thread_id=" + std::to_string(thread_id) + " BLOCKED (Not enough resources: requested " +
-                    std::to_string(amount) + ", available " + std::to_string(available_) + ")");
+                StateSnapshot current_state{available_, allocation_, need_};
+                log_message(event_log(thread_id, "BLOCKED", amount, &current_state));
             }
             return first_try = false;
         }
@@ -65,17 +64,15 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
 
         if (isSafe()) {
             if (!first_try) {
-                log_message(
-                    "thread_id=" + std::to_string(thread_id) + " WOKE UP and successfully captured " +
-                    std::to_string(amount) + " resources");
+                StateSnapshot current_state{available_, allocation_, need_};
+                log_message(event_log(thread_id, "WAKEUP", amount, &current_state));
             }
             return true;
         }
 
         if (first_try) {
-            log_message(
-                "thread_id=" + std::to_string(thread_id) + " DENIED by Banker's Algorithm (Unsafe State! Requested " +
-                std::to_string(amount) + ")");
+            StateSnapshot current_state{available_, allocation_, need_};
+            log_message(event_log(thread_id, "DENIED", amount, &current_state));
         }
 
         available_ += amount;
