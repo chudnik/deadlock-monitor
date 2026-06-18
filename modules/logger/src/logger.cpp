@@ -58,16 +58,16 @@ void stop_logger() {
 }
 
 void log_message(const std::string &message) {
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
-    std::string log_message = "[+" + std::to_string(ms) + "ms] " + message;
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
     {
+        std::string log_message = "[+" + std::to_string(ms) + "ms] " + message;
         std::lock_guard lock(logger_mutex);
         logger_queue.push(log_message);
     }
     logger_cv.notify_one();
 }
 
-std::string event_log(std::size_t thread_id, const std::string &event, const std::size_t amount,
+std::string event_log(const std::size_t thread_id, const std::string &event, const std::size_t amount,
                       const StateSnapshot *state) {
     std::ostringstream os;
     os << "event=" << std::left << std::setw(8) << event << " thread_id=" << thread_id;

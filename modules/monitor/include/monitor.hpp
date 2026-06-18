@@ -38,7 +38,7 @@ public:
         return {available_, allocation_, need_};
     }
 
-    std::size_t getNeed(std::size_t thread_id) const {
+    std::size_t getNeed(const std::size_t thread_id) const {
         std::lock_guard lock(mtx_);
         if (thread_id >= num_threads_) throw std::out_of_range("Invalid ID");
         return need_[thread_id];

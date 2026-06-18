@@ -52,7 +52,7 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
         if (shutdown_) return true;
         if (amount > available_) {
             if (first_try) {
-                StateSnapshot current_state{available_, allocation_, need_};
+                const StateSnapshot current_state{available_, allocation_, need_};
                 log_message(event_log(thread_id, "BLOCKED", amount, &current_state));
             }
             return first_try = false;
@@ -64,14 +64,14 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
 
         if (isSafe()) {
             if (!first_try) {
-                StateSnapshot current_state{available_, allocation_, need_};
+                const StateSnapshot current_state{available_, allocation_, need_};
                 log_message(event_log(thread_id, "WAKEUP", amount, &current_state));
             }
             return true;
         }
 
         if (first_try) {
-            StateSnapshot current_state{available_, allocation_, need_};
+            const StateSnapshot current_state{available_, allocation_, need_};
             log_message(event_log(thread_id, "DENIED", amount, &current_state));
         }
 

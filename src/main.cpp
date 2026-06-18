@@ -5,7 +5,7 @@
 #include <iostream>
 #include <vector>
 
-int main(int argc, char *argv[]) {
+int main(const int argc, char *argv[]) {
     if (argc != 4) {
         std::cerr << "Usage: " << argv[0] << " <threads> <total_resources> <duration_sec>\n";
         return 1;
@@ -57,7 +57,7 @@ int main(int argc, char *argv[]) {
     int total_req = 0, total_granted = 0, total_waited = 0;
     for (int i = 0; i < K; ++i) {
         const auto &s = stats[i];
-        double avg_wait = s.waited > 0 ? (double) s.total_wait_ms / s.waited : 0.0;
+        const double avg_wait = s.waited > 0 ? static_cast<double>(s.total_wait_ms) / s.waited : 0.0;
         std::cout << std::left
                 << std::setw(10) << i
                 << std::setw(10) << s.requests
