@@ -50,10 +50,13 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
 
     cv_.wait(lock, [&] {
         if (shutdown_) return true;
+
+        auto &logger = Logger::instance();
+
         if (amount > available_) {
             if (first_try) {
                 const StateSnapshot current_state{available_, allocation_, need_};
-                log_message(event_log(thread_id, "BLOCKED", amount, &current_state));
+                logger.log_message(logger.event_log(thread_id, "BLOCKED", amount, &current_state));
             }
             return first_try = false;
         }
@@ -65,14 +68,14 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
         if (isSafe()) {
             if (!first_try) {
                 const StateSnapshot current_state{available_, allocation_, need_};
-                log_message(event_log(thread_id, "WAKEUP", amount, &current_state));
+                logger.log_message(logger.event_log(thread_id, "WAKEUP", amount, &current_state));
             }
             return true;
         }
 
         if (first_try) {
             const StateSnapshot current_state{available_, allocation_, need_};
-            log_message(event_log(thread_id, "DENIED", amount, &current_state));
+            logger.log_message(logger.event_log(thread_id, "DENIED", amount, &current_state));
         }
 
         available_ += amount;

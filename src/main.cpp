@@ -37,11 +37,14 @@ int main(const int argc, char *argv[]) {
         std::cout << " Thread-" << i << "=" << max_claims[i];
     std::cout << "\n\n";
 
-    init_logger();
+    // --- ИНИЦИАЛИЗАЦИЯ БОЛЬШЕ НЕ НУЖНА ---
+    // Логгер автоматически создастся внутри runSimulation при первом же вызове Logger::get_instance()
 
     const SimulationResult result = runSimulation(Total, T, max_claims);
 
-    stop_logger();
+    // --- ОСТАНОВКА БОЛЬШЕ НЕ НУЖНА ---
+    // Деструктор синглтона автоматически вызовется при завершении программы (после return 0)
+    // и корректно остановит фоновый поток.
 
     const auto &stats = result.stats;
     std::cout << "\n=== Statistics ===\n";
