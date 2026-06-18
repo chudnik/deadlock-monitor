@@ -1,4 +1,5 @@
 #include "monitor.hpp"
+#include "logger.hpp"
 #include <algorithm>
 #include <chrono>
 #include <stdexcept>
@@ -49,13 +50,33 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
 
     cv_.wait(lock, [&] {
         if (shutdown_) return true;
-        if (amount > available_) return first_try = false;
+        if (amount > available_) {
+            if (first_try) {
+                log_message(
+                    "thread_id=" + std::to_string(thread_id) + " BLOCKED (Not enough resources: requested " +
+                    std::to_string(amount) + ", available " + std::to_string(available_) + ")");
+            }
+            return first_try = false;
+        }
 
         available_ -= amount;
         allocation_[thread_id] += amount;
         need_[thread_id] -= amount;
 
-        if (isSafe()) return true;
+        if (isSafe()) {
+            if (!first_try) {
+                log_message(
+                    "thread_id=" + std::to_string(thread_id) + " WOKE UP and successfully captured " +
+                    std::to_string(amount) + " resources");
+            }
+            return true;
+        }
+
+        if (first_try) {
+            log_message(
+                "thread_id=" + std::to_string(thread_id) + " DENIED by Banker's Algorithm (Unsafe State! Requested " +
+                std::to_string(amount) + ")");
+        }
 
         available_ += amount;
         allocation_[thread_id] -= amount;
