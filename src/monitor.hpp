@@ -6,17 +6,17 @@
 
 /// @brief Атомарный снимок состояния системы ресурсов в один момент времени.
 struct StateSnapshot {
-    int available;              ///< Число свободных единиц ресурса.
-    std::vector<int> allocation; ///< Allocation[i]: выделено потоку i.
-    std::vector<int> need;       ///< Need[i]: оставшаяся потребность потока i.
+    std::size_t available; ///< Число свободных единиц ресурса.
+    std::vector<std::size_t> allocation; ///< Allocation[i]: выделено потоку i.
+    std::vector<std::size_t> need; ///< Need[i]: оставшаяся потребность потока i.
 };
 
 /// @brief Статистика работы одного потока за всё время выполнения программы.
 struct ThreadStats {
-    int requests       = 0; ///< Общее число обращений к монитору с запросом ресурсов.
-    int granted        = 0; ///< Число успешно выполненных выделений ресурсов.
-    int waited         = 0; ///< Число случаев, когда поток был заблокирован монитором.
-    long long total_wait_ms = 0; ///< Суммарное время ожидания в миллисекундах.
+    std::size_t requests = 0; ///< Общее число обращений к монитору с запросом ресурсов.
+    std::size_t granted = 0; ///< Число успешно выполненных выделений ресурсов.
+    std::size_t waited = 0; ///< Число случаев, когда поток был заблокирован монитором.
+    std::size_t total_wait_ms = 0; ///< Суммарное время ожидания в миллисекундах.
 };
 
 /**
@@ -46,7 +46,7 @@ public:
      *         (неположительные total/num_threads, неверный размер max_claims,
      *         отрицательные или превышающие total значения max_claims[i]).
      */
-    ResourceMonitor(int total, int num_threads, std::vector<int> max_claims);
+    ResourceMonitor(std::size_t total, std::size_t num_threads, std::vector<std::size_t> max_claims);
 
     /**
      * @brief Запрашивает выделение ресурсов для потока.
@@ -114,7 +114,7 @@ public:
      * @brief Возвращает статистику по всем потокам.
      * @return Константная ссылка на вектор структур ThreadStats.
      */
-    const std::vector<ThreadStats>& stats() const { return stats_; }
+    const std::vector<ThreadStats> &stats() const { return stats_; }
 
     /**
      * @brief Возвращает текущее число свободных единиц ресурса.
@@ -126,13 +126,13 @@ public:
      * @brief Возвращает вектор текущего распределения ресурсов по потокам.
      * @return Константная ссылка на вектор Allocation.
      */
-    const std::vector<int>& allocation() const { return allocation_; }
+    const std::vector<std::size_t> &allocation() const { return allocation_; }
 
     /**
      * @brief Возвращает вектор оставшихся потребностей потоков.
      * @return Константная ссылка на вектор Need.
      */
-    const std::vector<int>& need() const { return need_; }
+    const std::vector<std::size_t> &need() const { return need_; }
 
 private:
     /**
@@ -147,17 +147,17 @@ private:
      */
     bool isSafe() const;
 
-    int total_;                          ///< Общее число единиц ресурса.
-    int available_;                      ///< Текущее число свободных единиц.
-    int num_threads_;                    ///< Количество потоков.
-    std::vector<int> max_;               ///< Max[i]: максимальная потребность потока i.
-    std::vector<int> allocation_;        ///< Allocation[i]: выделено потоку i.
-    std::vector<int> need_;              ///< Need[i] = Max[i] - Allocation[i].
+    std::size_t total_; ///< Общее число единиц ресурса.
+    std::size_t available_; ///< Текущее число свободных единиц.
+    std::size_t num_threads_; ///< Количество потоков.
+    std::vector<std::size_t> max_; ///< Max[i]: максимальная потребность потока i.
+    std::vector<std::size_t> allocation_; ///< Allocation[i]: выделено потоку i.
+    std::vector<std::size_t> need_; ///< Need[i] = Max[i] - Allocation[i].
 
-    bool shutdown_ = false;             ///< Флаг завершения: пробуждает все ожидающие потоки.
+    bool shutdown_ = false; ///< Флаг завершения: пробуждает все ожидающие потоки.
 
-    mutable std::mutex mtx_;            ///< Мьютекс для защиты состояния монитора.
-    std::condition_variable cv_;        ///< Условная переменная для ожидания безопасного состояния.
+    mutable std::mutex mtx_; ///< Мьютекс для защиты состояния монитора.
+    std::condition_variable cv_; ///< Условная переменная для ожидания безопасного состояния.
 
-    std::vector<ThreadStats> stats_;    ///< Статистика по каждому потоку.
+    std::vector<ThreadStats> stats_; ///< Статистика по каждому потоку.
 };

@@ -3,31 +3,27 @@
 #include <chrono>
 #include <stdexcept>
 
-ResourceMonitor::ResourceMonitor(int total, int num_threads, std::vector<int> max_claims)
-    : total_(total)
-    , available_(total)
-    , num_threads_(num_threads)
-    , max_(std::move(max_claims))
-    , allocation_(num_threads, 0)
-    , need_(num_threads)
-    , stats_(num_threads)
-{
-    if (total_ <= 0)
+ResourceMonitor::ResourceMonitor(const std::size_t total,
+                                 const std::size_t num_threads,
+                                 std::vector<std::size_t> max_claims) : total_(total),
+                                                                        available_(total),
+                                                                        num_threads_(num_threads),
+                                                                        max_(std::move(max_claims)),
+                                                                        allocation_(num_threads, 0),
+                                                                        need_(num_threads),
+                                                                        stats_(num_threads) {
+    if (total_ == 0)
         throw std::invalid_argument("total must be positive");
-    if (num_threads_ <= 0)
+    if (num_threads_ == 0)
         throw std::invalid_argument("num_threads must be positive");
-    if (static_cast<int>(max_.size()) != num_threads_)
+    if (max_.size() != num_threads_)
         throw std::invalid_argument("max_claims size must match num_threads");
 
-    for (int i = 0; i < num_threads_; ++i) {
-        if (max_[i] < 0)
-            throw std::invalid_argument("max_claims must be non-negative");
-        if (max_[i] > total_)
-            throw std::invalid_argument("max_claims must be <= total");
-    }
+    for (std::size_t i = 0; i < num_threads_; ++i) {
+        if (max_[i] > total_) throw std::invalid_argument("max_claims must be <= total");
 
-    for (int i = 0; i < num_threads_; ++i)
         need_[i] = max_[i];
+    }
 }
 
 /**
@@ -58,7 +54,7 @@ bool ResourceMonitor::isSafe() const {
         }
     }
 
-    return std::all_of(finish.begin(), finish.end(), [](bool v){ return v; });
+    return std::all_of(finish.begin(), finish.end(), [](bool v) { return v; });
 }
 
 /**
@@ -93,16 +89,16 @@ bool ResourceMonitor::request(int id, int amount) {
         if (amount > available_)
             return false;
 
-        available_      -= amount;
+        available_ -= amount;
         allocation_[id] += amount;
-        need_[id]       -= amount;
+        need_[id] -= amount;
 
         if (isSafe())
             return true;
 
-        available_      += amount;
+        available_ += amount;
         allocation_[id] -= amount;
-        need_[id]       += amount;
+        need_[id] += amount;
         waited = true;
         return false;
     });
@@ -137,9 +133,9 @@ void ResourceMonitor::release(int id, int amount) {
         if (amount > allocation_[id])
             throw std::invalid_argument("release amount exceeds allocation");
 
-        available_      += amount;
+        available_ += amount;
         allocation_[id] -= amount;
-        need_[id]       += amount;
+        need_[id] += amount;
     }
     cv_.notify_all();
 }
