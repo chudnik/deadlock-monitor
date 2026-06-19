@@ -13,7 +13,9 @@ namespace {
         auto &logger = Logger::instance();
 
         while (running) {
-            const int need_now = mon.getNeed(id);
+            const StateSnapshot current_snapshot = mon.snapshot();
+            const int need_now = static_cast<int>(current_snapshot.need[id]);
+
             if (need_now == 0) {
                 logger.log_message(Logger::event_log(id, "COMPLETE", -1, nullptr));
                 break;
@@ -58,15 +60,14 @@ SimulationResult runSimulation(const int total_resources, const int duration_sec
                                const std::vector<std::size_t> &max_claims) {
     const int num_threads = static_cast<int>(max_claims.size());
 
-    // Передаем лямбду, которая перенаправляет вызовы из монитора в Logger
-    ResourceMonitor monitor(total_resources, num_threads, max_claims,
-        [](std::size_t thread_id, std::string_view event, std::size_t amount, const StateSnapshot *state) {
+    ResourceMonitor monitor(total_resources, max_claims,
+        [](std::size_t thread_id, std::string_view event, std::size_t amount, const StateSnapshot &state) {
             auto &logger = Logger::instance();
-            logger.log_message(Logger::event_log(thread_id, event, amount, state));
+            logger.log_message(Logger::event_log(thread_id, event, amount, &state));
         }
     );
 
-    std::atomic running{true};
+    std::atomic<bool> running{true};
 
     std::vector<std::thread> threads;
     threads.reserve(num_threads);
@@ -75,6 +76,7 @@ SimulationResult runSimulation(const int total_resources, const int duration_sec
 
     std::this_thread::sleep_for(std::chrono::seconds(duration_sec));
     monitor.shutdown();
+    running = false;
 
     for (auto &t: threads)
         t.join();

@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <functional>
 #include <string_view>
+#include <memory>
 
 struct StateSnapshot {
     std::size_t available;
@@ -21,7 +22,7 @@ struct ThreadStats {
 
 class ResourceMonitor {
 public:
-    using CallBack = std::function<void(std::size_t, std::string_view, std::size_t, const StateSnapshot *)>;
+    using CallBack = std::function<void(std::size_t, std::string_view, std::size_t, const StateSnapshot &)>;
 
     ResourceMonitor(std::size_t total,
                     std::vector<std::size_t> max_claims,
@@ -37,17 +38,29 @@ public:
 
     std::vector<ThreadStats> stats() const;
 
+    ResourceMonitor(const ResourceMonitor &) = delete;
+
+    ResourceMonitor &operator=(const ResourceMonitor &) = delete;
+
+    ResourceMonitor(ResourceMonitor &&) = delete;
+
+    ResourceMonitor &operator=(ResourceMonitor &&) = delete;
+
 private:
     bool isSafe() const;
 
     std::size_t available_;
     std::vector<std::size_t> allocation_, need_;
 
-    mutable std::vector<bool> finish_buffer_;
+    mutable std::vector<char> finish_buffer_;
     bool shutdown_ = false;
 
     mutable std::mutex mtx_;
-    std::condition_variable cv_;
+
+    std::vector<std::unique_ptr<std::condition_variable> > cvs_;
+
+    std::vector<std::size_t> pending_request_;
+    std::vector<bool> request_granted_;
 
     std::vector<ThreadStats> stats_;
     CallBack callback_;
