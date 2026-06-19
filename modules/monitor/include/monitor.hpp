@@ -7,17 +7,27 @@
 #include <string_view>
 #include <memory>
 
+/**
+ * @brief Срез текущего состояния монитора ресурсов.
+ *
+ * Используется для логирования и анализа распределения ресурсов в конкретный момент времени.
+ */
 struct StateSnapshot {
-    std::size_t available;
-    std::vector<std::size_t> allocation;
-    std::vector<std::size_t> need;
+    std::size_t available; /// Количество свободных ресурсов в системе.
+    std::vector<std::size_t> allocation; /// Количество ресурсов, выделенных каждому потоку.
+    std::vector<std::size_t> need; /// Оставшаяся потребность каждого потока для завершения.
 };
 
+/**
+ * @brief Статистика работы отдельного потока.
+ *
+ * Накапливает метрики производительности и задержек в процессе симуляции.
+ */
 struct ThreadStats {
-    std::size_t requests = 0;
-    std::size_t granted = 0;
-    std::size_t waited = 0;
-    std::size_t total_wait_ms = 0;
+    std::size_t requests = 0; /// Общее количество запросов ресурсов.
+    std::size_t granted = 0; /// Количество успешно удовлетворенных запросов.
+    std::size_t waited = 0; /// Количество раз, когда поток был заблокирован в ожидании.
+    std::size_t total_wait_ms = 0; /// Суммарное время ожидания ресурсов в миллисекундах.
 };
 
 class ResourceMonitor {
