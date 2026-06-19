@@ -4,6 +4,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <functional>
+#include <string_view>
 
 struct StateSnapshot {
     std::size_t available;
@@ -31,50 +32,24 @@ public:
 
     void release(std::size_t thread_id, std::size_t amount);
 
-    void shutdown() {
-        {
-            std::lock_guard lock(mtx_);
-            shutdown_ = true;
-        }
-        cv_.notify_all();
-    }
+    void shutdown();
 
-    StateSnapshot snapshot() const {
-        std::lock_guard lock(mtx_);
-        return {available_, allocation_, need_};
-    }
+    StateSnapshot snapshot() const;
 
-    std::size_t getNeed(const std::size_t thread_id) const {
-        std::lock_guard lock(mtx_);
-        if (thread_id >= num_threads_) throw std::out_of_range("Invalid ID");
-        return need_[thread_id];
-    }
+    std::vector<ThreadStats> stats() const;
 
-    const std::vector<ThreadStats> &stats() const {
-        std::lock_guard lock(mtx_);
-        return stats_;
-    }
+    std::size_t available() const;
 
-    std::size_t available() const {
-        std::lock_guard lock(mtx_);
-        return available_;
-    }
+    std::vector<std::size_t> allocation() const;
 
-    const std::vector<std::size_t> &allocation() const {
-        std::lock_guard lock(mtx_);
-        return allocation_;
-    }
+    std::vector<std::size_t> need() const;
 
-    const std::vector<std::size_t> &need() const {
-        std::lock_guard lock(mtx_);
-        return need_;
-    }
+    std::size_t getNeed(std::size_t thread_id) const;
 
 private:
     bool isSafe() const;
 
     std::size_t total_, available_, num_threads_;
-
     std::vector<std::size_t> allocation_, need_;
     mutable std::vector<bool> finish_buffer_;
     bool shutdown_ = false;

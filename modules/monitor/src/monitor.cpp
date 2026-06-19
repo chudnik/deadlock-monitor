@@ -1,7 +1,6 @@
 #include "monitor.hpp"
 #include <algorithm>
 #include <chrono>
-#include <stdexcept>
 
 ResourceMonitor::ResourceMonitor(const std::size_t total,
                                  const std::size_t num_threads,
@@ -36,7 +35,7 @@ bool ResourceMonitor::isSafe() const {
         }
     }
 
-    return std::all_of(finish_buffer_.begin(), finish_buffer_.end(), [](const bool v) { return v; });
+    return std::ranges::all_of(finish_buffer_, [](const bool v) { return v; });
 }
 
 bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amount) {
@@ -46,16 +45,16 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
     if (amount == 0 || amount > need_[thread_id]) throw std::invalid_argument("Invalid amount");
 
     stats_[thread_id].requests++;
-    bool first_try = true;
-    bool approved = false;
-    const auto wait_start = std::chrono::steady_clock::now();
 
-    bool should_log_blocked = false;
-    bool should_log_denied = false;
-    StateSnapshot log_snapshot;
+    bool first_try = true;
+    const auto wait_start = std::chrono::steady_clock::now();
 
     while (true) {
         if (shutdown_) break;
+
+        bool should_log_blocked = false;
+        bool should_log_denied = false;
+        StateSnapshot log_snapshot;
 
         if (amount > available_) {
             if (first_try) {
@@ -69,11 +68,20 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
             need_[thread_id] -= amount;
 
             if (isSafe()) {
-                approved = true;
+                stats_[thread_id].granted++;
                 if (!first_try) {
+                    stats_[thread_id].waited++;
+                    const auto wait_end = std::chrono::steady_clock::now();
+                    stats_[thread_id].total_wait_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
+                        wait_end - wait_start).count();
+
                     log_snapshot = {available_, allocation_, need_};
+                    lock.unlock();
+                    if (callback_) callback_(thread_id, "WAKEUP", amount, &log_snapshot);
+                    return true;
                 }
-                break;
+                lock.unlock();
+                return true;
             }
 
             if (first_try) {
@@ -81,7 +89,6 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
                 log_snapshot = {available_, allocation_, need_};
                 first_try = false;
             }
-
             available_ += amount;
             allocation_[thread_id] -= amount;
             need_[thread_id] += amount;
@@ -91,31 +98,16 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
             lock.unlock();
             if (callback_) {
                 if (should_log_blocked) callback_(thread_id, "BLOCKED", amount, &log_snapshot);
-                if (should_log_denied) callback_(thread_id, "DENIED", amount, &log_snapshot);
+                else callback_(thread_id, "DENIED", amount, &log_snapshot);
             }
-            should_log_blocked = false;
-            should_log_denied = false;
             lock.lock();
-            continue;
+            if (shutdown_) break;
         }
 
         cv_.wait(lock);
     }
 
-    if (shutdown_ || !approved) return false;
-
-    if (!first_try) {
-        stats_[thread_id].waited++;
-        stats_[thread_id].total_wait_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - wait_start).count();
-
-        lock.unlock();
-        if (callback_) callback_(thread_id, "WAKEUP", amount, &log_snapshot);
-    } else {
-        lock.unlock();
-    }
-
-    return stats_[thread_id].granted++, true;
+    return false;
 }
 
 void ResourceMonitor::release(const std::size_t thread_id, const std::size_t amount) {
@@ -129,4 +121,43 @@ void ResourceMonitor::release(const std::size_t thread_id, const std::size_t amo
         need_[thread_id] += amount;
     }
     cv_.notify_all();
+}
+
+void ResourceMonitor::shutdown() {
+    {
+        std::lock_guard lock(mtx_);
+        shutdown_ = true;
+    }
+    cv_.notify_all();
+}
+
+StateSnapshot ResourceMonitor::snapshot() const {
+    std::lock_guard lock(mtx_);
+    return {available_, allocation_, need_};
+}
+
+std::vector<ThreadStats> ResourceMonitor::stats() const {
+    std::lock_guard lock(mtx_);
+    return stats_;
+}
+
+std::size_t ResourceMonitor::available() const {
+    std::lock_guard lock(mtx_);
+    return available_;
+}
+
+std::vector<std::size_t> ResourceMonitor::allocation() const {
+    std::lock_guard lock(mtx_);
+    return allocation_;
+}
+
+std::vector<std::size_t> ResourceMonitor::need() const {
+    std::lock_guard lock(mtx_);
+    return need_;
+}
+
+std::size_t ResourceMonitor::getNeed(const std::size_t thread_id) const {
+    std::lock_guard lock(mtx_);
+    if (thread_id >= num_threads_) throw std::out_of_range("Invalid ID");
+    return need_[thread_id];
 }
