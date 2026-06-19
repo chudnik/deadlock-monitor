@@ -1,47 +1,57 @@
 #include "monitor.hpp"
 #include <algorithm>
 #include <chrono>
+#include <functional>
+#include <stdexcept>
 
 ResourceMonitor::ResourceMonitor(const std::size_t total,
-                                 const std::size_t num_threads,
                                  std::vector<std::size_t> max_claims,
-                                 CallBack callback) : total_(total),
-                                                      available_(total),
-                                                      num_threads_(num_threads),
-                                                      allocation_(num_threads, 0),
-                                                      need_(std::move(max_claims)),
-                                                      finish_buffer_(num_threads),
-                                                      stats_(num_threads),
-                                                      callback_(std::move(callback)) {
-    if (total == 0 || num_threads == 0 || need_.size() != num_threads)
+                                 CallBack callback)
+    : available_(total),
+      allocation_(max_claims.size(), 0),
+      need_(std::move(max_claims)),
+      finish_buffer_(allocation_.size()),
+      stats_(allocation_.size()),
+      callback_(std::move(callback)) {
+    if (total == 0 || need_.empty()) {
         throw std::invalid_argument("Invalid constructor arguments");
+    }
 
-    for (std::size_t i = 0; i < num_threads_; ++i) {
-        if (need_[i] > total_) throw std::invalid_argument("Claim exceeds total");
+    for (const std::size_t claim: need_) {
+        if (claim > total) {
+            throw std::invalid_argument("Claim exceeds total available resources");
+        }
     }
 }
 
 bool ResourceMonitor::isSafe() const {
+    const std::size_t size = need_.size();
     std::size_t work = available_;
     std::fill(finish_buffer_.begin(), finish_buffer_.end(), false);
 
     for (bool found = true; found;) {
         found = false;
-        for (std::size_t i = 0; i < num_threads_; i++) {
-            if (!finish_buffer_[i] && need_[i] <= work) {
+        for (std::size_t i = 0; i < size; i++) {
+            if (finish_buffer_[i]) {
+                continue;
+            }
+
+            if (need_[i] <= work) {
                 work += allocation_[i];
-                finish_buffer_[i] = found = true;
+                finish_buffer_[i] = true;
+                found = true;
             }
         }
     }
 
-    return std::ranges::all_of(finish_buffer_, [](const bool v) { return v; });
+    return std::ranges::all_of(finish_buffer_, std::identity{});
 }
 
 bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amount) {
     std::unique_lock lock(mtx_);
 
-    if (thread_id >= num_threads_) throw std::out_of_range("Invalid ID");
+    const std::size_t size = need_.size();
+    if (thread_id >= size) throw std::out_of_range("Invalid ID");
     if (amount == 0 || amount > need_[thread_id]) throw std::invalid_argument("Invalid amount");
 
     stats_[thread_id].requests++;
@@ -97,8 +107,7 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
         if (should_log_blocked || should_log_denied) {
             lock.unlock();
             if (callback_) {
-                if (should_log_blocked) callback_(thread_id, "BLOCKED", amount, &log_snapshot);
-                else callback_(thread_id, "DENIED", amount, &log_snapshot);
+                callback_(thread_id, should_log_blocked ? "BLOCKED" : "DENIED", amount, &log_snapshot);
             }
             lock.lock();
             if (shutdown_) break;
@@ -113,7 +122,7 @@ bool ResourceMonitor::request(const std::size_t thread_id, const std::size_t amo
 void ResourceMonitor::release(const std::size_t thread_id, const std::size_t amount) {
     {
         std::lock_guard lock(mtx_);
-        if (thread_id >= num_threads_) throw std::out_of_range("Invalid ID");
+        if (thread_id >= allocation_.size()) throw std::out_of_range("Invalid ID");
         if (amount == 0 || amount > allocation_[thread_id]) throw std::invalid_argument("Invalid amount");
 
         available_ += amount;
@@ -139,25 +148,4 @@ StateSnapshot ResourceMonitor::snapshot() const {
 std::vector<ThreadStats> ResourceMonitor::stats() const {
     std::lock_guard lock(mtx_);
     return stats_;
-}
-
-std::size_t ResourceMonitor::available() const {
-    std::lock_guard lock(mtx_);
-    return available_;
-}
-
-std::vector<std::size_t> ResourceMonitor::allocation() const {
-    std::lock_guard lock(mtx_);
-    return allocation_;
-}
-
-std::vector<std::size_t> ResourceMonitor::need() const {
-    std::lock_guard lock(mtx_);
-    return need_;
-}
-
-std::size_t ResourceMonitor::getNeed(const std::size_t thread_id) const {
-    std::lock_guard lock(mtx_);
-    if (thread_id >= num_threads_) throw std::out_of_range("Invalid ID");
-    return need_[thread_id];
 }
