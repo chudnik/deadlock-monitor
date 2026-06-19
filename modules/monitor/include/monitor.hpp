@@ -50,13 +50,25 @@ public:
         return need_[thread_id];
     }
 
-    const std::vector<ThreadStats> &stats() const { return stats_; }
+    const std::vector<ThreadStats> &stats() const {
+        std::lock_guard lock(mtx_);
+        return stats_;
+    }
 
-    std::size_t available() const { return available_; }
+    std::size_t available() const {
+        std::lock_guard lock(mtx_);
+        return available_;
+    }
 
-    const std::vector<std::size_t> &allocation() const { return allocation_; }
+    const std::vector<std::size_t> &allocation() const {
+        std::lock_guard lock(mtx_);
+        return allocation_;
+    }
 
-    const std::vector<std::size_t> &need() const { return need_; }
+    const std::vector<std::size_t> &need() const {
+        std::lock_guard lock(mtx_);
+        return need_;
+    }
 
 private:
     bool isSafe() const;
