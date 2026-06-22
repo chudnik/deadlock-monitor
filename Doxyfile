@@ -1,5 +1,7 @@
 PROJECT_NAME     = "Deadlock Monitor"
-INPUT            = src/
+INPUT            = modules/
 RECURSIVE        = YES
 OUTPUT_DIRECTORY = docs/
 GENERATE_LATEX   = NO
+OUTPUT_LANGUAGE  = Russian
+EXTRACT_PRIVATE  = YES
