@@ -1,5 +1,6 @@
 add_library(logger STATIC
         src/logger.cpp
+        src/formatter.cpp
 )
 
 target_include_directories(logger PUBLIC include)
