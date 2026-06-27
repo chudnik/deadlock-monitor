@@ -1,33 +1,18 @@
 #include "simulation.hpp"
 #include "logger.hpp"
+#include "resource_utils.hpp"
 
 #include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <random>
 #include <stdexcept>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 namespace
 {
-    bool isZeroVector(const ResourceVector &values)
-    {
-        for (const std::size_t value : values)
-        {
-            if (value != 0)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    ResourceVector makeZeroVector(const std::size_t resource_count)
-    {
-        return ResourceVector(resource_count, 0);
-    }
-
     ResourceVector makeRandomRequest(const ResourceVector &need, std::mt19937 &rng)
     {
         ResourceVector request(need.size(), 0);
@@ -50,7 +35,7 @@ namespace
             return request;
         }
 
-        if (isZeroVector(request))
+        if (resource_utils::isZeroVector(request))
         {
             std::uniform_int_distribution<std::size_t> index_dist(0, positive_need_indices.size() - 1);
             const std::size_t index = positive_need_indices[index_dist(rng)];
@@ -62,6 +47,20 @@ namespace
         return request;
     }
 
+    void releaseHeldResources(const std::size_t id, ResourceMonitor &monitor, Logger &logger)
+    {
+        const StateSnapshot snapshot = monitor.snapshot();
+        const ResourceVector held = snapshot.allocation.at(id);
+
+        if (resource_utils::isZeroVector(held))
+        {
+            return;
+        }
+
+        monitor.release(id, held);
+        logger.log_event(id, "RELEASE", held, monitor.snapshot());
+    }
+
     void worker(const std::size_t id,
                 ResourceMonitor &monitor,
                 const std::atomic<bool> &running,
@@ -70,40 +69,42 @@ namespace
         std::mt19937 rng(std::random_device{}() ^ static_cast<unsigned>(id * 2654435761u));
         Logger &logger = Logger::instance();
 
-        while (running.load(std::memory_order_relaxed))
+        while (true)
         {
             const StateSnapshot current_snapshot = monitor.snapshot();
             const ResourceVector &need_now = current_snapshot.need.at(id);
 
-            if (isZeroVector(need_now))
+            if (resource_utils::isZeroVector(need_now))
             {
-                logger.log_event(id, "COMPLETE", makeZeroVector(resource_count), current_snapshot);
+                monitor.finish(id);
+                logger.log_event(id, "COMPLETE", resource_utils::makeZeroVector(resource_count), monitor.snapshot());
+                break;
+            }
+
+            if (!running.load(std::memory_order_relaxed))
+            {
+                releaseHeldResources(id, monitor, logger);
+                logger.log_event(id, "CANCELLED", resource_utils::makeZeroVector(resource_count), monitor.snapshot());
                 break;
             }
 
             const ResourceVector amount = makeRandomRequest(need_now, rng);
-
-            const StateSnapshot request_snapshot = monitor.snapshot();
-            logger.log_event(id, "REQUEST", amount, request_snapshot);
+            logger.log_event(id, "REQUEST", amount, monitor.snapshot());
 
             if (!monitor.request(id, amount))
             {
-                const StateSnapshot stopped_snapshot = monitor.snapshot();
-                logger.log_event(id, "STOPPED", amount, stopped_snapshot);
+                releaseHeldResources(id, monitor, logger);
+                logger.log_event(id, "CANCELLED", amount, monitor.snapshot());
                 break;
             }
 
-            const StateSnapshot grant_snapshot = monitor.snapshot();
-            logger.log_event(id, "GRANTED", amount, grant_snapshot);
+            logger.log_event(id, "GRANTED", amount, monitor.snapshot());
 
             std::uniform_int_distribution<int> work_ms(50, 200);
             std::this_thread::sleep_for(std::chrono::milliseconds(work_ms(rng)));
 
-            monitor.release(id, amount);
-
-            const StateSnapshot release_snapshot = monitor.snapshot();
-            logger.log_event(id, "RELEASE", amount, release_snapshot);
-
+            // Классическая модель алгоритма Банкира: поток накапливает ресурсы
+            // до полного удовлетворения need и возвращает их только через finish().
             std::uniform_int_distribution<int> pause_ms(10, 100);
             std::this_thread::sleep_for(std::chrono::milliseconds(pause_ms(rng)));
         }
@@ -122,16 +123,16 @@ ResourceMatrix generateMaxClaims(const int num_threads, const ResourceVector &to
         throw std::invalid_argument("Resource vector cannot be empty");
     }
 
-    std::mt19937 rng(42);
-    ResourceMatrix max_claims(static_cast<std::size_t>(num_threads), ResourceVector(total_resources.size(), 0));
-
-    for (std::size_t j = 0; j < total_resources.size(); ++j)
+    for (const std::size_t total : total_resources)
     {
-        if (total_resources[j] == 0)
+        if (total == 0)
         {
             throw std::invalid_argument("Each resource type must have positive amount");
         }
     }
+
+    std::mt19937 rng(42);
+    ResourceMatrix max_claims(static_cast<std::size_t>(num_threads), ResourceVector(total_resources.size(), 0));
 
     for (int i = 0; i < num_threads; ++i)
     {
@@ -167,7 +168,6 @@ SimulationResult runSimulation(const ResourceVector &total_resources,
                             });
 
     std::atomic<bool> running{true};
-
     std::vector<std::thread> threads;
     threads.reserve(num_threads);
 
@@ -188,6 +188,13 @@ SimulationResult runSimulation(const ResourceVector &total_resources,
             thread.join();
         }
     }
+
+    if (!monitor.checkInvariants())
+    {
+        throw std::logic_error("Resource monitor invariants are broken after simulation");
+    }
+
+    Logger::instance().flush();
 
     return {monitor.stats()};
 }

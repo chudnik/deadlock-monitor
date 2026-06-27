@@ -13,8 +13,7 @@
 /**
  * @brief Асинхронный потокобезопасный логгер.
  *
- * Logger не форматирует состояние монитора самостоятельно. Форматирование вынесено
- * в LogFormatter, поэтому логгер отвечает только за очередь сообщений и вывод.
+ * Logger отвечает за очередь сообщений и вывод. Форматирование вынесено в LogFormatter.
  */
 class Logger
 {
@@ -29,8 +28,10 @@ public:
     void log_message(std::string message);
 
     /**
-     * @brief Удобный метод с сигнатурой, совместимой с callback монитора.
+     * @brief Ожидает, пока очередь сообщений опустеет и текущее сообщение будет допечатано.
      */
+    void flush();
+
     void log_event(std::size_t thread_id,
                    std::string_view event,
                    const ResourceVector &amount,
@@ -47,5 +48,7 @@ private:
     std::thread logger_thread_;
     std::mutex logger_mutex_;
     std::condition_variable logger_cv_;
+    std::condition_variable flush_cv_;
     std::queue<std::string> logger_queue_;
+    bool is_writing_{false};
 };

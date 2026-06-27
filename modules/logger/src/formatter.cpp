@@ -1,5 +1,6 @@
 #include "formatter.hpp"
 
+#include <cstddef>
 #include <iomanip>
 #include <sstream>
 
@@ -39,13 +40,33 @@ std::string LogFormatter::resourceMatrixToString(const ResourceMatrix &matrix)
     return os.str();
 }
 
+std::string LogFormatter::flagVectorToString(const std::vector<char> &values)
+{
+    std::ostringstream os;
+    os << '[';
+
+    for (std::size_t i = 0; i < values.size(); ++i)
+    {
+        if (i != 0)
+        {
+            os << ',';
+        }
+        os << (values[i] ? '1' : '0');
+    }
+
+    os << ']';
+    return os.str();
+}
+
 std::string LogFormatter::stateToString(const StateSnapshot &state)
 {
     std::ostringstream os;
 
     os << "available=" << resourceVectorToString(state.available)
        << " allocation=" << resourceMatrixToString(state.allocation)
-       << " need=" << resourceMatrixToString(state.need);
+       << " need=" << resourceMatrixToString(state.need)
+       << " finished=" << flagVectorToString(state.finished)
+       << " waiting=" << flagVectorToString(state.waiting);
 
     return os.str();
 }
@@ -57,7 +78,7 @@ std::string LogFormatter::eventLog(const std::size_t thread_id,
 {
     std::ostringstream os;
 
-    os << "event=" << std::left << std::setw(8) << event
+    os << "event=" << std::left << std::setw(9) << event
        << " thread_id=" << thread_id
        << " amount=" << resourceVectorToString(amount)
        << " state={" << stateToString(state) << '}';

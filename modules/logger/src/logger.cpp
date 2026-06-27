@@ -49,14 +49,38 @@ void Logger::logger_worker()
 
             log_message = std::move(logger_queue_.front());
             logger_queue_.pop();
+            is_writing_ = true;
         }
 
         std::cout << log_message << '\n';
+
+        {
+            std::lock_guard lock(logger_mutex_);
+            is_writing_ = false;
+
+            if (logger_queue_.empty())
+            {
+                flush_cv_.notify_all();
+            }
+        }
     }
+
+    {
+        std::lock_guard lock(logger_mutex_);
+        is_writing_ = false;
+    }
+    flush_cv_.notify_all();
 }
 
-void Logger::log_message(std::string message)
+void Logger::flush()
 {
+    std::unique_lock lock(logger_mutex_);
+    flush_cv_.wait(lock, [this]
+                   { return logger_queue_.empty() && !is_writing_; });
+}
+
+void Logger::log_message(std::string message){
+
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - start_)
                         .count();

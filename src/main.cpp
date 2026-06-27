@@ -134,7 +134,6 @@ int main(const int argc, char *argv[])
         std::cout << '\n';
 
         const SimulationResult result = runSimulation(total_resources, duration_sec, max_claims);
-
         printStatistics(result.stats);
 
         std::cout << "\nNo deadlocks detected.\n";

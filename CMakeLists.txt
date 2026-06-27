@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_subdirectory(modules/monitor)
 add_subdirectory(modules/simulation)
 add_subdirectory(modules/logger)
+add_subdirectory(utils)
 
 add_executable(deadlock_monitor src/main.cpp)
 
